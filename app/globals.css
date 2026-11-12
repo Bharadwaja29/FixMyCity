@@ -20,6 +20,7 @@
   --color-success-foreground: var(--success-foreground);
   --color-saffron: var(--saffron);
   --color-saffron-foreground: var(--saffron-foreground);
+  --color-saffron-ink: var(--saffron-ink);
   --color-accent-foreground: var(--accent-foreground);
   --color-accent: var(--accent);
   --color-muted-foreground: var(--muted-foreground);
@@ -71,6 +72,8 @@
   --accent-foreground: #0b1f3a;
   --saffron: #e08a00;
   --saffron-foreground: #0b1f3a;
+  /* Darkened saffron for text and stamp ink: #E08A00 alone fails AA on paper. */
+  --saffron-ink: #8a5200;
   --success: #1e7a4f;
   --success-foreground: #fffdf8;
   --destructive: #b3261e;
@@ -105,6 +108,23 @@
   .animate-ticker {
     animation: none;
   }
+}
+
+.fmc-hotspot-label {
+  background: none;
+  border: none;
+  box-shadow: none;
+  color: #0b1f3a;
+  font-weight: 700;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  text-shadow:
+    0 0 3px #fffdf8,
+    0 0 3px #fffdf8;
+}
+
+.fmc-hotspot-label::before {
+  display: none;
 }
 
 .fmc-map-pin {
