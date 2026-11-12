@@ -1,0 +1,106 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+@import 'shadcn/tailwind.css';
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --font-sans: var(--font-public-sans), 'Public Sans', ui-sans-serif, system-ui, sans-serif;
+  --font-serif: var(--font-source-serif), 'Source Serif 4', ui-serif, Georgia, serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-saffron: var(--saffron);
+  --color-saffron-foreground: var(--saffron-foreground);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-foreground: var(--foreground);
+  --color-background: var(--background);
+
+  --radius-sm: calc(var(--radius) - 2px);
+  --radius-md: var(--radius);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 2px);
+
+  --animate-ticker: ticker 60s linear infinite;
+
+  @keyframes ticker {
+    from {
+      transform: translateX(0);
+    }
+    to {
+      transform: translateX(-50%);
+    }
+  }
+}
+
+:root {
+  color-scheme: light;
+  /* Ink navy #0B1F3A on warm paper #F7F3EA */
+  --background: #f7f3ea;
+  --foreground: #0b1f3a;
+  --card: #fffdf8;
+  --card-foreground: #0b1f3a;
+  --popover: #fffdf8;
+  --popover-foreground: #0b1f3a;
+  --primary: #0b1f3a;
+  --primary-foreground: #fffdf8;
+  --secondary: color-mix(in srgb, #0b1f3a 6%, #f7f3ea);
+  --secondary-foreground: #0b1f3a;
+  --muted: color-mix(in srgb, #0b1f3a 5%, #f7f3ea);
+  --muted-foreground: color-mix(in srgb, #0b1f3a 74%, #f7f3ea);
+  --accent: color-mix(in srgb, #0b1f3a 7%, #f7f3ea);
+  --accent-foreground: #0b1f3a;
+  --saffron: #e08a00;
+  --saffron-foreground: #0b1f3a;
+  --success: #1e7a4f;
+  --success-foreground: #fffdf8;
+  --destructive: #b3261e;
+  --destructive-foreground: #fffdf8;
+  --border: color-mix(in srgb, #0b1f3a 16%, #f7f3ea);
+  --input: color-mix(in srgb, #0b1f3a 28%, #f7f3ea);
+  --ring: #e08a00;
+  --radius: 6px;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground font-sans;
+  }
+  h1,
+  h2,
+  h3,
+  h4 {
+    @apply font-serif;
+  }
+  :focus-visible {
+    outline: 2px solid var(--foreground);
+    outline-offset: 2px;
+    box-shadow: 0 0 0 4px var(--saffron);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-ticker {
+    animation: none;
+  }
+}
