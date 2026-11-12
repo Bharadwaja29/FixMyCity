@@ -5,9 +5,11 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
-  --font-sans: var(--font-public-sans), 'Public Sans', ui-sans-serif, system-ui, sans-serif;
-  --font-serif: var(--font-source-serif), 'Source Serif 4', ui-serif, Georgia, serif;
-  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans: var(--font-public-sans), 'Public Sans', var(--font-noto-devanagari), 'Noto Sans Devanagari',
+    ui-sans-serif, system-ui, sans-serif;
+  --font-serif: var(--font-source-serif), 'Source Serif 4', var(--font-noto-devanagari), 'Noto Sans Devanagari',
+    ui-serif, Georgia, serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, var(--font-noto-devanagari), monospace;
 
   --color-ring: var(--ring);
   --color-input: var(--input);
@@ -103,4 +105,9 @@
   .animate-ticker {
     animation: none;
   }
+}
+
+.fmc-map-pin {
+  background: none;
+  border: none;
 }

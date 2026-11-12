@@ -1,6 +1,6 @@
 import { Analytics } from '@vercel/analytics/next'
 import type { Metadata, Viewport } from 'next'
-import { Public_Sans, Source_Serif_4 } from 'next/font/google'
+import { Noto_Sans_Devanagari, Public_Sans, Source_Serif_4 } from 'next/font/google'
 import { LocaleProvider } from '@/components/locale-provider'
 import { SiteHeader } from '@/components/site-header'
 import { SiteFooter } from '@/components/site-footer'
@@ -8,6 +8,12 @@ import './globals.css'
 
 const publicSans = Public_Sans({ subsets: ['latin'], variable: '--font-public-sans', display: 'swap' })
 const sourceSerif = Source_Serif_4({ subsets: ['latin'], variable: '--font-source-serif', display: 'swap' })
+const notoDevanagari = Noto_Sans_Devanagari({
+  subsets: ['devanagari'],
+  weight: ['400', '500', '600', '700'],
+  variable: '--font-noto-devanagari',
+  display: 'swap',
+})
 
 export const metadata: Metadata = {
   title: {
@@ -30,7 +36,7 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en" className={`${publicSans.variable} ${sourceSerif.variable} bg-background`}>
+    <html lang="en" className={`${publicSans.variable} ${sourceSerif.variable} ${notoDevanagari.variable} bg-background`}>
       <body className="flex min-h-dvh flex-col font-sans antialiased">
         <LocaleProvider>
           <SiteHeader />
