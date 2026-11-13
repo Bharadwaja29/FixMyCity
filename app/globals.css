@@ -5,9 +5,11 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
-  --font-sans: var(--font-public-sans), 'Public Sans', ui-sans-serif, system-ui, sans-serif;
-  --font-serif: var(--font-source-serif), 'Source Serif 4', ui-serif, Georgia, serif;
-  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans: var(--font-public-sans), 'Public Sans', var(--font-noto-devanagari), 'Noto Sans Devanagari',
+    ui-sans-serif, system-ui, sans-serif;
+  --font-serif: var(--font-source-serif), 'Source Serif 4', var(--font-noto-devanagari), 'Noto Sans Devanagari',
+    ui-serif, Georgia, serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, var(--font-noto-devanagari), monospace;
 
   --color-ring: var(--ring);
   --color-input: var(--input);
@@ -18,6 +20,7 @@
   --color-success-foreground: var(--success-foreground);
   --color-saffron: var(--saffron);
   --color-saffron-foreground: var(--saffron-foreground);
+  --color-saffron-ink: var(--saffron-ink);
   --color-accent-foreground: var(--accent-foreground);
   --color-accent: var(--accent);
   --color-muted-foreground: var(--muted-foreground);
@@ -69,6 +72,8 @@
   --accent-foreground: #0b1f3a;
   --saffron: #e08a00;
   --saffron-foreground: #0b1f3a;
+  /* Darkened saffron for text and stamp ink: #E08A00 alone fails AA on paper. */
+  --saffron-ink: #8a5200;
   --success: #1e7a4f;
   --success-foreground: #fffdf8;
   --destructive: #b3261e;
@@ -103,4 +108,26 @@
   .animate-ticker {
     animation: none;
   }
+}
+
+.fmc-hotspot-label {
+  background: none;
+  border: none;
+  box-shadow: none;
+  color: #0b1f3a;
+  font-weight: 700;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  text-shadow:
+    0 0 3px #fffdf8,
+    0 0 3px #fffdf8;
+}
+
+.fmc-hotspot-label::before {
+  display: none;
+}
+
+.fmc-map-pin {
+  background: none;
+  border: none;
 }

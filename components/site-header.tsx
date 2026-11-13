@@ -78,7 +78,7 @@ export function SiteHeader() {
           })}
           <span className="mx-2 h-5 w-px bg-border" aria-hidden="true" />
           <Link
-            href="/officer"
+            href="/admin"
             className="rounded-md border border-input px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-secondary"
           >
             {t('navOfficer')}
@@ -106,7 +106,7 @@ export function SiteHeader() {
       {open && (
         <nav id="mobile-nav" aria-label="Primary" className="border-t border-border bg-card md:hidden">
           <ul className="mx-auto flex max-w-6xl flex-col px-4 py-2">
-            {[...NAV, { href: '/officer', key: 'navOfficer' as DictionaryKey }].map((item) => (
+            {[...NAV, { href: '/admin', key: 'navOfficer' as DictionaryKey }].map((item) => (
               <li key={item.href}>
                 <Link
                   href={item.href}
