@@ -4,6 +4,8 @@ import Link from 'next/link'
 import { useState } from 'react'
 import { Copy, Check, ArrowRight } from 'lucide-react'
 import type { Complaint } from '@/lib/api'
+import { CATEGORY_LEDGER_DEPARTMENT } from '@/lib/departments'
+import { formatKolkataDate, toKolkataDateString } from '@/lib/format'
 
 interface Props {
   complaint: Complaint
@@ -12,14 +14,10 @@ interface Props {
   headingRef: React.Ref<HTMLHeadingElement>
 }
 
-function formatDate(iso: string) {
-  return new Date(`${iso}T00:00:00`).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
-}
-
 export function Receipt({ complaint, kind, onReset, headingRef }: Props) {
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle')
   const trackPath = `/track?id=${encodeURIComponent(complaint.id)}`
-  const today = new Date().toISOString().slice(0, 10)
+  const today = toKolkataDateString(new Date())
 
   async function copyLink() {
     const url = `${window.location.origin}${trackPath}`
@@ -31,14 +29,20 @@ export function Receipt({ complaint, kind, onReset, headingRef }: Props) {
     }
   }
 
+  // Database department name (e.g. "Roads" instead of "Public Works Department")
+  const departmentName = CATEGORY_LEDGER_DEPARTMENT[complaint.category] || complaint.department
+
   const rows: [string, string][] = [
     ['Case no.', complaint.id],
-    [kind === 'filed' ? 'Date filed' : 'Date supported', formatDate(kind === 'filed' ? complaint.filedOn : today)],
-    ['Department', complaint.department],
+    ['Date filed', formatKolkataDate(kind === 'filed' ? (complaint.filedAt || complaint.filedOn) : today)],
+    ['Department', departmentName],
     ['Category', complaint.category],
     ['Location', complaint.landmark ?? `${complaint.ward}, ${complaint.city}`],
   ]
-  if (kind === 'supported') rows.push(['Supporters', String(complaint.supporters ?? 1)])
+  if (kind === 'supported') {
+    rows[1] = ['Date supported', formatKolkataDate(today)]
+    rows.push(['Supporters', String(complaint.supporters ?? 1)])
+  }
 
   return (
     <div className="mx-auto flex w-full max-w-xl flex-col gap-6">
@@ -81,7 +85,7 @@ export function Receipt({ complaint, kind, onReset, headingRef }: Props) {
         <p className="sr-only">Stamped {kind === 'filed' ? 'received' : 'supported'}.</p>
 
         <p className="border-t border-border bg-muted px-6 py-3 font-mono text-xs leading-relaxed">
-          Keep this case number. An SMS copy will be sent when an officer is assigned.
+          Keep this case number to track your complaint.
         </p>
       </article>
 

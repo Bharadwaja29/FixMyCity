@@ -20,6 +20,7 @@ import { StatusBadge } from '@/components/case/status-badge'
 import { SeverityChip } from '@/components/report/severity-chip'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
+import { formatKolkataDate } from '@/lib/format'
 import {
   COMPLAINT_STATUSES,
   STATUS_LABEL,
@@ -236,7 +237,7 @@ export function CaseDrawer({
                   </div>
                   <div>
                     <span className="text-muted-foreground">Filed: </span>
-                    <span className="font-semibold tabular-nums">{complaint.filedOn}</span>
+                    <span className="font-semibold tabular-nums">{formatKolkataDate(complaint.filedAt || complaint.filedOn)}</span>
                   </div>
                   <div>
                     <span className="text-muted-foreground">Days open: </span>

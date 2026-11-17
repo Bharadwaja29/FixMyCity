@@ -22,6 +22,7 @@ import { LocationStep } from './location-step'
 import { SimilarReports } from './similar-reports'
 import { ReviewStep } from './review-step'
 import { Receipt } from './receipt'
+import { compressImage } from '@/lib/image-compression'
 
 type Step = 1 | 2 | 3 | 'done'
 
@@ -64,6 +65,9 @@ export function ReportFlow() {
   const analysisRequest = useRef(0)
   const photosRef = useRef(photos)
   photosRef.current = photos
+  const categoryTouchedRef = useRef(false)
+  const categoryRef = useRef(category)
+  categoryRef.current = category
   const isFirstRender = useRef(true)
 
   useEffect(() => () => photosRef.current.forEach((p) => URL.revokeObjectURL(p.url)), [])
@@ -93,16 +97,28 @@ export function ReportFlow() {
       setAnalysis(null)
       setAnalyzing(false)
       setAnalysisError(null)
-      if (!categoryTouched) setCategory('')
+      if (!categoryTouchedRef.current && !categoryRef.current) setCategory('')
       return
     }
     setAnalyzing(true)
     setAnalysisError(null)
     try {
-      const res = await analyzeImageAction(next.map((p) => ({ name: p.file.name, size: p.file.size, type: p.file.type })))
+      const formData = new FormData()
+      if (next[0]?.file) {
+        const compressed = await compressImage(next[0].file, 1600, 0.8)
+        formData.append('file', compressed)
+      }
+      if (description) formData.append('text', description)
+      formData.append(
+        'meta',
+        JSON.stringify(next.map((p) => ({ name: p.file.name, size: p.file.size, type: p.file.type })))
+      )
+      const res = await analyzeImageAction(formData)
       if (request !== analysisRequest.current) return
       setAnalysis(res)
-      if (!categoryTouched) setCategory(res.issueType)
+      if (!categoryTouchedRef.current && !categoryRef.current) {
+        setCategory(res.issueType)
+      }
       clearError('category')
     } catch {
       if (request !== analysisRequest.current) return
@@ -171,14 +187,27 @@ export function ReportFlow() {
     }
     setBusy(true)
     try {
-      const res = await submitComplaintAction({
-        category: category as ComplaintCategory,
-        description,
-        landmark,
-        location,
-        severity: analysis?.severity ?? 'Medium',
-        photoCount: photos.length,
-      })
+      const formData = new FormData()
+      formData.append('category', category as string)
+      formData.append('description', description)
+      formData.append('landmark', landmark)
+      formData.append('lat', String(location.lat))
+      formData.append('lng', String(location.lng))
+      formData.append('severity', analysis?.severity ?? 'Medium')
+      formData.append('photoCount', String(photos.length))
+      if (analysis) {
+        if (analysis.issueType) formData.append('aiCategory', analysis.issueType)
+        const confidence = analysis.topClasses?.[0]?.score
+        if (confidence !== undefined) formData.append('aiConfidence', String(confidence))
+        if (analysis.severity) formData.append('aiSeverity', analysis.severity)
+        if (analysis.modelVersion) formData.append('aiModelVersion', analysis.modelVersion)
+      }
+      for (const p of photos) {
+        const compressed = await compressImage(p.file, 1600, 0.8)
+        formData.append('photos', compressed)
+      }
+
+      const res = await submitComplaintAction(formData)
       if (res.ok) {
         setResult({ complaint: res.complaint, kind: 'filed' })
         setStep('done')
@@ -217,6 +246,7 @@ export function ReportFlow() {
     setAnalysisError(null)
     setCategory('')
     setCategoryTouched(false)
+    categoryTouchedRef.current = false
     setDescription('')
     setLocation(DEFAULT_CENTER)
     setLandmark('')
@@ -281,6 +311,7 @@ export function ReportFlow() {
           onCategoryChange={(c) => {
             setCategory(c)
             setCategoryTouched(true)
+            categoryTouchedRef.current = true
             clearError('category')
           }}
           description={description}

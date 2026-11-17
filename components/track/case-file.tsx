@@ -2,6 +2,7 @@ import Image from 'next/image'
 import { MapPin, Users } from 'lucide-react'
 import type { ComplaintDetail } from '@/lib/api'
 import { StatusStamp } from '@/components/case/status-badge'
+import { formatKolkataDate } from '@/lib/format'
 import { AnalysisCard } from './analysis-card'
 import { CaseMap } from './case-map'
 import { CopyLinkButton } from './copy-link-button'
@@ -38,7 +39,7 @@ export function CaseFile({ detail }: { detail: ComplaintDetail }) {
             </div>
             <div className="flex flex-col gap-0.5">
               <dt className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Filed on</dt>
-              <dd className="tabular-nums">{complaint.filedOn}</dd>
+              <dd className="tabular-nums">{formatKolkataDate(complaint.filedAt || complaint.filedOn)}</dd>
             </div>
             <div className="flex flex-col gap-0.5">
               <dt className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Ward</dt>

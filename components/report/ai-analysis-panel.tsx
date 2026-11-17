@@ -15,14 +15,37 @@ interface Props {
 
 export function AiAnalysisPanel({ analysis, analyzing, error, category, onCategoryChange, categoryError }: Props) {
   const overridden = analysis && category && category !== analysis.issueType
+  const isLive = analysis?.source === 'live'
+  const sourceLabel = isLive ? 'Live model' : 'Demo fallback'
 
   return (
     <CaseCard
-      label="AI Analysis"
+      label={
+        <span className="flex items-center gap-2">
+          <span>AI Analysis</span>
+          {analysis && (
+            <span
+              className={cn(
+                'inline-flex items-center rounded-sm border px-1.5 py-0.5 text-[10px] font-mono font-medium uppercase tracking-wide',
+                isLive
+                  ? 'border-emerald-600/30 bg-emerald-500/10 text-emerald-800 dark:text-emerald-300'
+                  : 'border-border bg-muted text-muted-foreground',
+              )}
+            >
+              {sourceLabel}
+            </span>
+          )}
+        </span>
+      }
       icon={ScanSearch}
       footer={
         analysis ? (
-          <span>Model {analysis.modelVersion} · Suggestion only, you have the final say</span>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span>Model {analysis.modelVersion} · Suggestion only, you have the final say</span>
+            <span className={cn('font-semibold', isLive ? 'text-foreground' : 'text-muted-foreground')}>
+              {sourceLabel}
+            </span>
+          </div>
         ) : (
           <span>Runs automatically after upload</span>
         )
@@ -45,7 +68,19 @@ export function AiAnalysisPanel({ analysis, analyzing, error, category, onCatego
         {!analyzing && analysis && (
           <>
             <div className="flex flex-col gap-1">
-              <p className="text-xs uppercase tracking-widest text-muted-foreground">Detected issue</p>
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-xs uppercase tracking-widest text-muted-foreground">Detected issue</p>
+                <span
+                  className={cn(
+                    'inline-flex items-center rounded-sm border px-1.5 py-0.5 text-[10px] font-mono font-medium uppercase tracking-wide',
+                    isLive
+                      ? 'border-emerald-600/30 bg-emerald-500/10 text-emerald-800 dark:text-emerald-300'
+                      : 'border-border bg-muted text-muted-foreground',
+                  )}
+                >
+                  {sourceLabel}
+                </span>
+              </div>
               <div className="flex flex-wrap items-center gap-3">
                 <p className="font-serif text-2xl font-semibold">{analysis.issueType}</p>
                 <SeverityChip severity={analysis.severity} />

@@ -6,6 +6,7 @@ import type { ComplaintCategory, ImageAnalysis } from '@/lib/api'
 import { CaseCard, FieldError, fieldClass } from './case-card'
 import { AiAnalysisPanel } from './ai-analysis-panel'
 import { cn } from '@/lib/utils'
+import { compressImage } from '@/lib/image-compression'
 
 export interface Photo {
   id: string
@@ -14,7 +15,7 @@ export interface Photo {
 }
 
 export const MAX_PHOTOS = 3
-const MAX_BYTES = 10 * 1024 * 1024
+const MAX_BYTES = 30 * 1024 * 1024
 
 interface Props {
   photos: Photo[]
@@ -35,7 +36,7 @@ export function EvidenceStep(props: Props) {
   const [dragging, setDragging] = useState(false)
   const [uploadError, setUploadError] = useState<string | null>(null)
 
-  function addFiles(list: FileList | null) {
+  async function addFiles(list: FileList | null) {
     if (!list) return
     const files = Array.from(list)
     const images = files.filter((f) => f.type.startsWith('image/'))
@@ -46,15 +47,18 @@ export function EvidenceStep(props: Props) {
 
     const problems: string[] = []
     if (images.length < files.length) problems.push('Only image files can be attached.')
-    if (tooBig.length) problems.push('Each photo must be under 10 MB.')
+    if (tooBig.length) problems.push('Each photo must be under 30 MB.')
     if (accepted.length > room) problems.push(`You can attach up to ${MAX_PHOTOS} photos.`)
     setUploadError(problems.length ? problems.join(' ') : null)
 
     if (toAdd.length) {
-      onPhotosChange([
-        ...photos,
-        ...toAdd.map((file) => ({ id: crypto.randomUUID(), file, url: URL.createObjectURL(file) })),
-      ])
+      const compressedList = await Promise.all(
+        toAdd.map(async (file) => {
+          const compressed = await compressImage(file, 1600, 0.8)
+          return { id: crypto.randomUUID(), file: compressed, url: URL.createObjectURL(compressed) }
+        })
+      )
+      onPhotosChange([...photos, ...compressedList])
     }
     if (inputRef.current) inputRef.current.value = ''
   }
