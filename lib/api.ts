@@ -17,10 +17,10 @@ import {
   ML_TO_DISPLAY_LABEL,
   type MlDuplicateCandidate,
 } from './ml-client'
-import { uploadComplaintPhoto } from './supabase/storage'
+import { uploadComplaintPhoto, getEvidencePublicUrl } from './supabase/storage'
 import { toKolkataDateString, formatKolkataDate } from './format'
 
-export { DEPARTMENT_BY_CATEGORY, LEDGER_DEPARTMENTS, CATEGORY_LEDGER_DEPARTMENT, ML_TO_APP_CATEGORY, ML_TO_DISPLAY_LABEL }
+export { DEPARTMENT_BY_CATEGORY, LEDGER_DEPARTMENTS, CATEGORY_LEDGER_DEPARTMENT, ML_TO_APP_CATEGORY, ML_TO_DISPLAY_LABEL, getEvidencePublicUrl }
 export type { LedgerDepartment }
 
 export const CATEGORY_DEPARTMENT_ID: Record<ComplaintCategory, number> = {
@@ -184,10 +184,14 @@ export function dbToComplaint(row: any, updates: any[] = []): Complaint {
       ? Math.max(0, Math.floor((Date.parse(row.resolved_at) - Date.parse(filedAt)) / DAY_MS))
       : undefined
 
-  const photoUrl =
+  const rawPhoto =
     Array.isArray(row.image_urls) && row.image_urls.length > 0 && row.image_urls[0]
       ? row.image_urls[0]
       : '/placeholder.jpg'
+  const photoUrl = getEvidencePublicUrl(rawPhoto)
+  const imageUrls = Array.isArray(row.image_urls)
+    ? row.image_urls.map((u: string) => getEvidencePublicUrl(u))
+    : []
 
   return {
     id: row.case_id,
@@ -207,7 +211,7 @@ export function dbToComplaint(row: any, updates: any[] = []): Complaint {
     severity: (row.severity as Severity) || 'Medium',
     supporters: row.supporter_count ?? 0,
     photoUrl,
-    imageUrls: row.image_urls || [],
+    imageUrls,
     history,
   }
 }
@@ -997,7 +1001,7 @@ export async function getComplaintDetail(id: string): Promise<ComplaintDetail | 
 
     if (row) {
       complaint = dbToComplaint(row, row.complaint_updates)
-      photoUrlFromDb = Array.isArray(row.image_urls) && row.image_urls[0] ? row.image_urls[0] : null
+      photoUrlFromDb = Array.isArray(row.image_urls) && row.image_urls[0] ? getEvidencePublicUrl(row.image_urls[0]) : null
       aiConfidenceFromDb = row.ai_confidence
       aiModelFromDb = row.ai_model_version
       aiCategoryFromDb = row.ai_category ? (DB_TO_APP_CATEGORY[row.ai_category] || row.ai_category) : null

@@ -1,5 +1,8 @@
+'use client'
+
+import { useEffect, useState } from 'react'
 import Image from 'next/image'
-import { MapPin, Users } from 'lucide-react'
+import { ImageOff, MapPin, Users } from 'lucide-react'
 import type { ComplaintDetail } from '@/lib/api'
 import { StatusStamp } from '@/components/case/status-badge'
 import { formatKolkataDate } from '@/lib/format'
@@ -10,6 +13,19 @@ import { Timeline } from './timeline'
 
 export function CaseFile({ detail }: { detail: ComplaintDetail }) {
   const { complaint, analysis, timeline, daysOpen, closed, photoUrl, supporters } = detail
+  const [imageError, setImageError] = useState(false)
+
+  useEffect(() => {
+    setImageError(false)
+  }, [complaint.id, photoUrl])
+
+  const hasPhoto = Boolean(
+    complaint.imageUrls &&
+    complaint.imageUrls.length > 0 &&
+    complaint.imageUrls.some((u) => Boolean(u && u.trim() && u !== '/placeholder.jpg')) &&
+    photoUrl &&
+    photoUrl !== '/placeholder.jpg'
+  )
 
   return (
     <article aria-labelledby="case-id" className="flex flex-col gap-6">
@@ -55,16 +71,26 @@ export function CaseFile({ detail }: { detail: ComplaintDetail }) {
       <div className="flex flex-col gap-6 lg:grid lg:grid-cols-2 lg:items-start">
         <div className="contents lg:flex lg:flex-col lg:gap-6">
           <figure className="order-1 overflow-hidden rounded-md border border-border bg-card">
-            <div className="relative aspect-[4/3] w-full bg-muted">
-              <Image
-                src={photoUrl}
-                alt={`Photo submitted with the complaint: ${complaint.title}`}
-                fill
-                sizes="(min-width: 1024px) 480px, 100vw"
-                className="object-cover"
-                priority
-              />
-            </div>
+            {hasPhoto && !imageError ? (
+              <div className="relative aspect-[4/3] w-full bg-muted">
+                <Image
+                  src={photoUrl}
+                  alt={`Photo submitted with the complaint: ${complaint.title}`}
+                  fill
+                  sizes="(min-width: 1024px) 480px, 100vw"
+                  className="object-cover"
+                  priority
+                  onError={() => setImageError(true)}
+                />
+              </div>
+            ) : (
+              <div className="flex aspect-[4/3] w-full flex-col items-center justify-center gap-2 bg-muted/60 p-6 text-center">
+                <ImageOff className="size-8 text-muted-foreground/50" aria-hidden="true" />
+                <p className="text-sm font-medium text-muted-foreground">
+                  No photo attached to this complaint
+                </p>
+              </div>
+            )}
             <figcaption className="border-t border-dashed border-border px-4 py-2 text-xs text-muted-foreground">
               Evidence photo, as filed by the citizen
             </figcaption>

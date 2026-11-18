@@ -6,6 +6,7 @@ import {
   BrainCircuit,
   ClipboardList,
   Filter,
+  LogOut,
   Search,
   ShieldAlert,
 } from 'lucide-react'
@@ -69,6 +70,14 @@ export default function AdminPage() {
 
   const openCasesCount = baselineComplaints.filter((c) => c.status !== 'resolved').length
 
+  const handleLogout = async () => {
+    try {
+      await fetch('/api/auth/admin-logout', { method: 'POST' })
+    } finally {
+      window.location.href = '/admin/login'
+    }
+  }
+
   return (
     <div className="mx-auto flex min-h-[calc(100vh-4rem)] max-w-7xl flex-col gap-6 px-4 py-8 md:px-6">
       {/* Top Banner / Breadcrumb */}
@@ -88,58 +97,73 @@ export default function AdminPage() {
           </p>
         </div>
 
-        {/* Global Navigation Tabs */}
-        <div
-          role="tablist"
-          aria-label="Console views"
-          className="flex h-11 items-center rounded-md border border-input bg-card p-1 shadow-xs"
-        >
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === 'queue'}
-            aria-controls="panel-queue"
-            id="tab-queue"
-            onClick={() => setActiveTab('queue')}
-            className={cn(
-              'flex items-center gap-2 rounded-sm px-4 py-2 text-xs font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-              activeTab === 'queue'
-                ? 'bg-primary text-primary-foreground shadow-xs'
-                : 'text-muted-foreground hover:text-foreground',
-            )}
+        {/* Global Navigation Tabs & Officer Actions */}
+        <div className="flex items-center gap-2">
+          <div
+            role="tablist"
+            aria-label="Console views"
+            className="flex h-11 items-center rounded-md border border-input bg-card p-1 shadow-xs"
           >
-            <ClipboardList className="size-4" aria-hidden="true" />
-            <span>Priority Queue</span>
-            <span
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab === 'queue'}
+              aria-controls="panel-queue"
+              id="tab-queue"
+              onClick={() => setActiveTab('queue')}
               className={cn(
-                'ml-1 rounded-full px-1.5 py-0.2 font-mono text-[10px]',
-                activeTab === 'queue' ? 'bg-saffron text-foreground font-bold' : 'bg-muted text-muted-foreground',
+                'flex items-center gap-2 rounded-sm px-4 py-2 text-xs font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                activeTab === 'queue'
+                  ? 'bg-primary text-primary-foreground shadow-xs'
+                  : 'text-muted-foreground hover:text-foreground',
               )}
             >
-              {openCasesCount}
-            </span>
-          </button>
+              <ClipboardList className="size-4" aria-hidden="true" />
+              <span>Priority Queue</span>
+              <span
+                className={cn(
+                  'ml-1 rounded-full px-1.5 py-0.2 font-mono text-[10px]',
+                  activeTab === 'queue' ? 'bg-saffron text-foreground font-bold' : 'bg-muted text-muted-foreground',
+                )}
+              >
+                {openCasesCount}
+              </span>
+            </button>
 
-          <button
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab === 'insights'}
+              aria-controls="panel-insights"
+              id="tab-insights"
+              onClick={() => setActiveTab('insights')}
+              className={cn(
+                'flex items-center gap-2 rounded-sm px-4 py-2 text-xs font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                activeTab === 'insights'
+                  ? 'bg-primary text-primary-foreground shadow-xs'
+                  : 'text-muted-foreground hover:text-foreground',
+              )}
+            >
+              <BrainCircuit className="size-4" aria-hidden="true" />
+              <span>ML Insights</span>
+              <span className="rounded-sm bg-saffron/20 px-1 py-0.2 text-[9px] font-bold text-saffron-foreground uppercase">
+                Eval
+              </span>
+            </button>
+          </div>
+
+          <Button
             type="button"
-            role="tab"
-            aria-selected={activeTab === 'insights'}
-            aria-controls="panel-insights"
-            id="tab-insights"
-            onClick={() => setActiveTab('insights')}
-            className={cn(
-              'flex items-center gap-2 rounded-sm px-4 py-2 text-xs font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-              activeTab === 'insights'
-                ? 'bg-primary text-primary-foreground shadow-xs'
-                : 'text-muted-foreground hover:text-foreground',
-            )}
+            variant="outline"
+            size="sm"
+            onClick={handleLogout}
+            className="h-11 gap-1.5 border-border bg-card px-3 text-xs font-semibold text-muted-foreground hover:bg-muted hover:text-foreground"
+            title="Sign out of Officer Console"
+            aria-label="Sign out of Officer Console"
           >
-            <BrainCircuit className="size-4" aria-hidden="true" />
-            <span>ML Insights</span>
-            <span className="rounded-sm bg-saffron/20 px-1 py-0.2 text-[9px] font-bold text-saffron-foreground uppercase">
-              Eval
-            </span>
-          </button>
+            <LogOut className="size-3.5" aria-hidden="true" />
+            <span className="hidden sm:inline">Sign Out</span>
+          </Button>
         </div>
       </div>
 

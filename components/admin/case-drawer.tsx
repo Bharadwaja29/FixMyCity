@@ -10,6 +10,7 @@ import {
   ExternalLink,
   FileText,
   GitMerge,
+  ImageOff,
   Loader2,
   MapPin,
   Sparkles,
@@ -54,6 +55,7 @@ export function CaseDrawer({
 
   const [mergingTargetId, setMergingTargetId] = useState<string | null>(null)
   const [mergeSuccessMsg, setMergeSuccessMsg] = useState<string | null>(null)
+  const [imageError, setImageError] = useState(false)
 
   // Sync state when new complaint opens
   useEffect(() => {
@@ -63,6 +65,7 @@ export function CaseDrawer({
       setUpdateSuccessMsg(null)
       setUpdateErrorMsg(null)
       setMergeSuccessMsg(null)
+      setImageError(false)
     }
   }, [data?.detail.complaint])
 
@@ -254,14 +257,28 @@ export function CaseDrawer({
                 </div>
 
                 <div className="overflow-hidden rounded-md border border-border bg-card">
-                  {detail.photoUrl && (
+                  {Boolean(
+                    complaint.imageUrls &&
+                    complaint.imageUrls.length > 0 &&
+                    complaint.imageUrls.some((u) => Boolean(u && u.trim() && u !== '/placeholder.jpg')) &&
+                    detail.photoUrl &&
+                    detail.photoUrl !== '/placeholder.jpg'
+                  ) && !imageError ? (
                     <div className="relative aspect-[16/9] w-full bg-muted">
                       <Image
                         src={detail.photoUrl}
                         alt={`Evidence photo for ${complaint.title}`}
                         fill
                         className="object-cover"
+                        onError={() => setImageError(true)}
                       />
+                    </div>
+                  ) : (
+                    <div className="flex aspect-[16/9] w-full flex-col items-center justify-center gap-2 border-b border-dashed border-border bg-muted/60 p-6 text-center">
+                      <ImageOff className="size-7 text-muted-foreground/50" aria-hidden="true" />
+                      <p className="text-xs font-medium text-muted-foreground">
+                        No photo attached to this complaint
+                      </p>
                     </div>
                   )}
                   <div className="flex flex-col gap-3 p-4 text-sm">
