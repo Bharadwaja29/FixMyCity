@@ -6,9 +6,72 @@ import {
   PHOTO_BY_CATEGORY,
   type LedgerDepartment,
 } from './departments'
+import { getSupabaseServerClient } from './supabase/server'
+import {
+  callMlAnalyze,
+  callMlDuplicateCheck,
+  mapMlCategoryToApp,
+  mapMlLabelToDisplay,
+  normalizeSeverity,
+  ML_TO_APP_CATEGORY,
+  ML_TO_DISPLAY_LABEL,
+  type MlDuplicateCandidate,
+} from './ml-client'
+import { uploadComplaintPhoto } from './supabase/storage'
+import { toKolkataDateString, formatKolkataDate } from './format'
 
-export { DEPARTMENT_BY_CATEGORY, LEDGER_DEPARTMENTS, CATEGORY_LEDGER_DEPARTMENT }
+export { DEPARTMENT_BY_CATEGORY, LEDGER_DEPARTMENTS, CATEGORY_LEDGER_DEPARTMENT, ML_TO_APP_CATEGORY, ML_TO_DISPLAY_LABEL }
 export type { LedgerDepartment }
+
+export const CATEGORY_DEPARTMENT_ID: Record<ComplaintCategory, number> = {
+  Pothole: 1,
+  Encroachment: 1,
+  'Damaged Infrastructure': 1,
+  Streetlight: 2,
+  'Water Supply': 3,
+  Garbage: 4,
+  Drainage: 4,
+  'School Facilities': 5,
+  'Hospital Services': 6,
+  'Food Safety': 7,
+}
+
+export const APP_TO_DB_CATEGORY: Record<ComplaintCategory, string> = {
+  Pothole: 'pothole',
+  Streetlight: 'streetlight',
+  Garbage: 'garbage',
+  Drainage: 'drainage',
+  'Water Supply': 'water_supply',
+  Encroachment: 'encroachment',
+  'Damaged Infrastructure': 'damaged_infrastructure',
+  'School Facilities': 'school_facilities',
+  'Hospital Services': 'hospital_services',
+  'Food Safety': 'food_safety',
+}
+
+export const DB_TO_APP_CATEGORY: Record<string, ComplaintCategory> = {
+  pothole: 'Pothole',
+  streetlight: 'Streetlight',
+  garbage: 'Garbage',
+  drainage: 'Drainage',
+  water_supply: 'Water Supply',
+  water_leakage: 'Water Supply',
+  encroachment: 'Encroachment',
+  damaged_infrastructure: 'Damaged Infrastructure',
+  school_facilities: 'School Facilities',
+  hospital_services: 'Hospital Services',
+  food_safety: 'Food Safety',
+}
+
+export const LEDGER_DEPARTMENT_TO_ID: Record<LedgerDepartment, number> = {
+  Roads: 1,
+  Electricity: 2,
+  'Water Supply': 3,
+  Sanitation: 4,
+  Schools: 5,
+  Hospitals: 6,
+  'Hostel/Food Safety': 7,
+}
 
 export type ComplaintStatus = 'received' | 'assigned' | 'in_progress' | 'resolved' | 'escalated'
 
@@ -19,6 +82,7 @@ export type ComplaintCategory =
   | 'Drainage'
   | 'Water Supply'
   | 'Encroachment'
+  | 'Damaged Infrastructure'
   | 'School Facilities'
   | 'Hospital Services'
   | 'Food Safety'
@@ -55,6 +119,8 @@ export interface Complaint {
   description?: string
   severity?: Severity
   supporters?: number
+  photoUrl?: string
+  imageUrls?: string[]
 }
 
 export interface GeoPoint {
@@ -80,6 +146,72 @@ export const DEFAULT_CENTER: GeoPoint = { lat: 25.2445, lng: 86.9718 }
 const globalStore = globalThis as unknown as { __fmcComplaintsV2?: Complaint[] }
 const complaints: Complaint[] = (globalStore.__fmcComplaintsV2 ??= buildSeedComplaints())
 
+export function dbToComplaint(row: any, updates: any[] = []): Complaint {
+  const category: ComplaintCategory = DB_TO_APP_CATEGORY[row.category] || 'Pothole'
+  const history: StatusEvent[] = (updates || []).map((u) => {
+    let officer: Officer = { name: 'Field Team', role: 'Duty Officer' }
+    if (u.officer_name) {
+      const parts = u.officer_name.split(',')
+      officer = {
+        name: parts[0]?.trim() || u.officer_name,
+        role: parts.slice(1).join(',').trim() || 'Duty Officer',
+      }
+    }
+    return {
+      status: u.status as ComplaintStatus,
+      at: u.created_at,
+      officer,
+      note: u.note || '',
+    }
+  })
+
+  if (history.length === 0) {
+    history.push({
+      status: (row.status as ComplaintStatus) || 'received',
+      at: row.created_at,
+      officer: { name: 'FixMyCity intake desk', role: 'Automated triage and duplicate check' },
+      note: `Complaint logged. Photo classified as ${category.toLowerCase()}; no duplicate found within 600 m.`,
+    })
+  }
+
+  history.sort((a, b) => Date.parse(a.at) - Date.parse(b.at))
+
+  const filedAt = row.created_at
+  const filedOn = toKolkataDateString(filedAt)
+  const resolvedOn = row.resolved_at ? toKolkataDateString(row.resolved_at) : undefined
+  const daysToResolve =
+    row.status === 'resolved' && row.resolved_at
+      ? Math.max(0, Math.floor((Date.parse(row.resolved_at) - Date.parse(filedAt)) / DAY_MS))
+      : undefined
+
+  const photoUrl =
+    Array.isArray(row.image_urls) && row.image_urls.length > 0 && row.image_urls[0]
+      ? row.image_urls[0]
+      : '/placeholder.jpg'
+
+  return {
+    id: row.case_id,
+    category,
+    title: row.title || `${category} — ${row.landmark || 'Bhagalpur'}`,
+    ward: row.ward || 'Ward 1',
+    city: 'Bhagalpur',
+    status: row.status as ComplaintStatus,
+    filedOn,
+    filedAt,
+    resolvedOn,
+    department: CATEGORY_LEDGER_DEPARTMENT[category] || DEPARTMENT_BY_CATEGORY[category] || 'Municipal Services',
+    daysToResolve,
+    location: row.lat && row.lng ? { lat: row.lat, lng: row.lng } : undefined,
+    landmark: row.landmark,
+    description: row.description || row.title,
+    severity: (row.severity as Severity) || 'Medium',
+    supporters: row.supporter_count ?? 0,
+    photoUrl,
+    imageUrls: row.image_urls || [],
+    history,
+  }
+}
+
 const stats: PlatformStats = {
   filed: 4217,
   resolved: 3368,
@@ -89,12 +221,39 @@ const stats: PlatformStats = {
 const delay = (ms = 40) => new Promise((resolve) => setTimeout(resolve, ms))
 
 export async function getPlatformStats(): Promise<PlatformStats> {
-  await delay()
+  try {
+    const supabase = getSupabaseServerClient()
+    const { count: filed } = await supabase.from('complaints').select('*', { count: 'exact', head: true })
+    const { count: resolved } = await supabase
+      .from('complaints')
+      .select('*', { count: 'exact', head: true })
+      .eq('status', 'resolved')
+
+    if (filed !== null && resolved !== null) {
+      return {
+        filed: filed > 0 ? filed : stats.filed,
+        resolved: resolved > 0 ? resolved : stats.resolved,
+        medianDaysToResolve: stats.medianDaysToResolve,
+      }
+    }
+  } catch (err) {}
   return stats
 }
 
 export async function getRecentlyResolved(limit = 8): Promise<Complaint[]> {
-  await delay()
+  try {
+    const supabase = getSupabaseServerClient()
+    const { data } = await supabase
+      .from('complaints')
+      .select('*, complaint_updates(*)')
+      .eq('status', 'resolved')
+      .order('resolved_at', { ascending: false, nullsFirst: false })
+      .limit(limit)
+
+    if (data && data.length > 0) {
+      return data.map((r) => dbToComplaint(r, r.complaint_updates))
+    }
+  } catch (err) {}
   return complaints
     .filter((c) => c.status === 'resolved')
     .sort((a, b) => (b.resolvedOn ?? '').localeCompare(a.resolvedOn ?? ''))
@@ -108,8 +267,19 @@ export function normalizeComplaintId(raw: string): string {
 }
 
 export async function getComplaintById(id: string): Promise<Complaint | null> {
-  await delay()
   const normalized = normalizeComplaintId(id)
+  try {
+    const supabase = getSupabaseServerClient()
+    const { data } = await supabase
+      .from('complaints')
+      .select('*, complaint_updates(*)')
+      .or(`case_id.eq.${normalized},id.eq.${normalized}`)
+      .maybeSingle()
+
+    if (data) {
+      return dbToComplaint(data, data.complaint_updates)
+    }
+  } catch (err) {}
   return complaints.find((c) => c.id === normalized) ?? null
 }
 
@@ -132,6 +302,7 @@ export const CATEGORIES: ComplaintCategory[] = [
   'Drainage',
   'Water Supply',
   'Encroachment',
+  'Damaged Infrastructure',
   'School Facilities',
   'Hospital Services',
   'Food Safety',
@@ -144,18 +315,20 @@ export interface ImageMeta {
 }
 
 export interface ClassScore {
-  label: ComplaintCategory
+  label: string
   score: number
 }
 
 export interface ImageAnalysis {
-  issueType: ComplaintCategory
+  issueType: string
   topClasses: ClassScore[]
   severity: Severity
   department: string
   /** GPS read from the photo's EXIF block, or null when absent. */
   photoGps: GeoPoint | null
   modelVersion: string
+  source?: 'live' | 'fallback'
+  isNoIssue?: boolean
 }
 
 export interface SimilarityBreakdown {
@@ -176,6 +349,7 @@ export interface DuplicateQuery {
   location: GeoPoint
   description: string
   landmark: string
+  imageUrl?: string
 }
 
 export interface NewComplaintInput {
@@ -185,6 +359,12 @@ export interface NewComplaintInput {
   location: GeoPoint
   severity: Severity
   photoCount: number
+  photoUrls?: string[]
+  photoFiles?: Array<{ name: string; type: string; buffer: ArrayBuffer | Buffer }>
+  aiCategory?: string
+  aiConfidence?: number
+  aiSeverity?: Severity
+  aiModelVersion?: string
 }
 
 export type SubmitResult = { ok: true; complaint: Complaint } | { ok: false; errors: Record<string, string> }
@@ -209,9 +389,17 @@ export function distanceMeters(a: GeoPoint, b: GeoPoint): number {
 
 const SEVERITIES: Severity[] = ['Low', 'Medium', 'High', 'Critical']
 
-/** Mock image classifier. Deterministic per file so repeated uploads give stable results. */
-export async function analyzeImage(images: ImageMeta[]): Promise<ImageAnalysis> {
-  await delay(900)
+export type AnalyzeImageInput =
+  | ImageMeta[]
+  | FormData
+  | {
+      file?: Blob | File | Buffer
+      fileName?: string
+      text?: string
+      images?: ImageMeta[]
+    }
+
+function analyzeImageMock(images: ImageMeta[]): ImageAnalysis {
   if (images.length === 0) throw new Error('At least one image is required')
   const seed = hashString(images.map((i) => `${i.name}:${i.size}`).join('|'))
 
@@ -246,6 +434,83 @@ export async function analyzeImage(images: ImageMeta[]): Promise<ImageAnalysis> 
   }
 }
 
+/** Image classifier: uses ML service if ML_SERVICE_URL is set, otherwise falls back to deterministic mock. */
+export async function analyzeImage(input: AnalyzeImageInput): Promise<ImageAnalysis> {
+  let images: ImageMeta[] = []
+  let file: Blob | File | Buffer | undefined
+  let fileName: string | undefined
+  let text: string | undefined
+
+  if (Array.isArray(input)) {
+    images = input
+  } else if (input instanceof FormData) {
+    const f = input.get('file')
+    if (f instanceof Blob) {
+      file = f
+      fileName = (f as any).name || 'image.jpg'
+    }
+    const t = input.get('text')
+    if (typeof t === 'string') text = t
+    const m = input.get('meta')
+    if (typeof m === 'string') {
+      try {
+        images = JSON.parse(m)
+      } catch {}
+    }
+  } else if (input && typeof input === 'object') {
+    file = input.file
+    fileName = input.fileName
+    text = input.text
+    images = input.images || []
+  }
+
+  // Try calling Python ML service if configured
+  const mlRes = await callMlAnalyze({ file, fileName, text })
+  if (mlRes.usedLive && mlRes.data) {
+    console.log('ML service used')
+    const rawCat = mlRes.data.category || mlRes.data.top3?.[0]?.label
+    const isNoIssue = rawCat === 'no_issue'
+    const displayLabel = mapMlLabelToDisplay(rawCat)
+    const primaryAppCategory = mapMlCategoryToApp(rawCat)
+
+    const topClasses: ClassScore[] =
+      mlRes.data.top3 && mlRes.data.top3.length > 0
+        ? mlRes.data.top3.map((t) => ({
+            label: mapMlLabelToDisplay(t.label),
+            score: t.prob,
+          }))
+        : [{ label: displayLabel, score: mlRes.data.confidence || 0.9 }]
+
+    // Suggested department from the ML response's "department" field when present
+    const suggestedDept =
+      mlRes.data.department ||
+      (primaryAppCategory ? (CATEGORY_LEDGER_DEPARTMENT[primaryAppCategory] || DEPARTMENT_BY_CATEGORY[primaryAppCategory]) : '')
+
+    return {
+      issueType: displayLabel,
+      topClasses,
+      severity: normalizeSeverity(mlRes.data.severity),
+      department: suggestedDept,
+      photoGps: null,
+      modelVersion: 'civic-vit-ml-service',
+      source: 'live',
+      isNoIssue,
+    }
+  }
+
+  console.log(`ML fallback used: ${mlRes.reason || 'unreachable'}`)
+
+  // Automatic fallback to existing deterministic mock
+  await delay(600)
+  const mockRes = await analyzeImageMock(
+    images.length > 0 ? images : [{ name: fileName || 'photo.jpg', size: 1024, type: 'image/jpeg' }]
+  )
+  return {
+    ...mockRes,
+    source: 'fallback',
+  }
+}
+
 function tokenize(text: string): Set<string> {
   return new Set(
     text
@@ -265,28 +530,155 @@ function jaccard(a: Set<string>, b: Set<string>): number {
 
 const DUPLICATE_RADIUS_M = 600
 
-/** Mock duplicate detector: weighted blend of distance, category (image proxy) and text overlap. */
+/** Duplicate detector: uses Supabase nearby_complaints RPC + ML duplicate service, falling back to rule-based scoring. */
 export async function checkDuplicates(query: DuplicateQuery): Promise<DuplicateMatch[]> {
-  await delay(600)
-  const queryTokens = tokenize(`${query.description} ${query.landmark} ${query.category}`)
-
-  return complaints
-    .filter((c) => c.location && c.status !== 'resolved')
-    .map((c) => {
-      const distanceM = distanceMeters(query.location, c.location as GeoPoint)
-      const location = Math.max(0, 1 - distanceM / DUPLICATE_RADIUS_M)
-      const jitter = (hashString(c.id) % 12) / 100
-      const image = c.category === query.category ? 0.78 + jitter : 0.18 + jitter
-      const text = Math.min(
-        1,
-        jaccard(queryTokens, tokenize(`${c.title} ${c.description ?? ''} ${c.category}`)) * 2.2 + 0.1,
-      )
-      const overall = location * 0.45 + image * 0.35 + text * 0.2
-      return { complaint: c, overall, breakdown: { location, image, text }, distanceM }
+  try {
+    const supabase = getSupabaseServerClient()
+    const { data: nearbyRows, error: rpcErr } = await supabase.rpc('nearby_complaints', {
+      p_lat: query.location.lat,
+      p_lng: query.location.lng,
+      p_radius_m: DUPLICATE_RADIUS_M,
+      p_category: null,
+      p_days: 60,
     })
-    .filter((m) => m.distanceM <= DUPLICATE_RADIUS_M && m.overall >= 0.45)
-    .sort((a, b) => b.overall - a.overall)
-    .slice(0, 3)
+
+    if (!rpcErr && nearbyRows && Array.isArray(nearbyRows) && nearbyRows.length > 0) {
+      const nonResolved = nearbyRows.filter((r: any) => r.status !== 'resolved')
+      const candidates: MlDuplicateCandidate[] = nonResolved.map((r: any) => ({
+        id: r.id,
+        case_id: r.case_id,
+        description: r.description || r.title || '',
+        image_urls: r.image_urls || [],
+        distance_m: Math.round(r.distance_m ?? distanceMeters(query.location, { lat: r.lat, lng: r.lng })),
+      }))
+
+      if (candidates.length > 0) {
+        // Try Python ML service if configured
+        const mlRes = await callMlDuplicateCheck({
+          text: `${query.description} ${query.landmark}`.trim(),
+          image_url: query.imageUrl || '',
+          candidates,
+        })
+
+        if (mlRes.usedLive && mlRes.data) {
+          console.log('ML service used')
+          const matches: DuplicateMatch[] = []
+          for (const m of mlRes.data) {
+            const raw = nonResolved.find((r: any) => r.id === m.id || r.case_id === m.case_id)
+            if (!raw) continue
+            matches.push({
+              complaint: dbToComplaint(raw),
+              overall: m.score,
+              breakdown: {
+                location: m.location_score,
+                image: m.image_score,
+                text: m.text_score,
+              },
+              distanceM: raw.distance_m ?? distanceMeters(query.location, { lat: raw.lat, lng: raw.lng }),
+            })
+          }
+          matches.sort((a, b) => b.overall - a.overall)
+          return matches.filter((m) => m.overall >= 0.45).slice(0, 3)
+        }
+
+        console.log(`ML fallback used: ${mlRes.reason || 'service unreachable'}`)
+
+        // Fallback to rule-based duplicate detector with DB results
+        const queryTokens = tokenize(`${query.description} ${query.landmark} ${query.category}`)
+        const dbCategory = APP_TO_DB_CATEGORY[query.category]
+        const scored = nonResolved
+          .map((c: any) => {
+            const distanceM = c.distance_m ?? distanceMeters(query.location, { lat: c.lat, lng: c.lng })
+            const location = Math.max(0, 1 - distanceM / DUPLICATE_RADIUS_M)
+            const jitter = (hashString(c.id || c.case_id) % 12) / 100
+            const image = c.category === dbCategory ? 0.78 + jitter : 0.18 + jitter
+            const text = Math.min(
+              1,
+              jaccard(queryTokens, tokenize(`${c.title} ${c.description ?? ''} ${c.category}`)) * 2.2 + 0.1,
+            )
+            const overall = location * 0.45 + image * 0.35 + text * 0.2
+            return {
+              complaint: dbToComplaint(c),
+              overall,
+              breakdown: { location, image, text },
+              distanceM,
+            }
+          })
+          .filter((m) => m.distanceM <= DUPLICATE_RADIUS_M && m.overall >= 0.45)
+          .sort((a, b) => b.overall - a.overall)
+          .slice(0, 3)
+
+        return scored
+      } else {
+        console.log('ML fallback used: no nearby complaints within 600m')
+        return []
+      }
+    } else {
+      console.log('ML fallback used: no nearby complaints within 600m')
+      return []
+    }
+  } catch (err) {
+    console.warn('nearby_complaints duplicate check error, falling back:', err)
+  }
+
+  // Fallback to in-memory store
+  await delay(300)
+  const nonResolvedMem = complaints.filter((c) => c.location && c.status !== 'resolved')
+  const memCandidates: MlDuplicateCandidate[] = nonResolvedMem
+    .map((c) => ({
+      id: c.id,
+      case_id: c.id,
+      description: c.description || c.title,
+      image_urls: c.imageUrls || (c.photoUrl ? [c.photoUrl] : []),
+      distance_m: Math.round(distanceMeters(query.location, c.location as GeoPoint)),
+    }))
+    .filter((c) => c.distance_m <= DUPLICATE_RADIUS_M)
+
+  if (memCandidates.length > 0) {
+    const mlRes = await callMlDuplicateCheck({
+      text: `${query.description} ${query.landmark}`.trim(),
+      image_url: query.imageUrl || '',
+      candidates: memCandidates,
+    })
+    if (mlRes.usedLive && mlRes.data) {
+      console.log('ML service used')
+      const matches: DuplicateMatch[] = []
+      for (const m of mlRes.data) {
+        const raw = nonResolvedMem.find((c) => c.id === m.id || c.id === m.case_id)
+        if (!raw) continue
+        matches.push({
+          complaint: raw,
+          overall: m.score,
+          breakdown: { location: m.location_score, image: m.image_score, text: m.text_score },
+          distanceM: distanceMeters(query.location, raw.location as GeoPoint),
+        })
+      }
+      matches.sort((a, b) => b.overall - a.overall)
+      return matches.filter((m) => m.overall >= 0.45).slice(0, 3)
+    }
+    console.log(`ML fallback used: ${mlRes.reason || 'service unreachable'}`)
+    const queryTokens = tokenize(`${query.description} ${query.landmark} ${query.category}`)
+    return complaints
+      .filter((c) => c.location && c.status !== 'resolved')
+      .map((c) => {
+        const distanceM = distanceMeters(query.location, c.location as GeoPoint)
+        const location = Math.max(0, 1 - distanceM / DUPLICATE_RADIUS_M)
+        const jitter = (hashString(c.id) % 12) / 100
+        const image = c.category === query.category ? 0.78 + jitter : 0.18 + jitter
+        const text = Math.min(
+          1,
+          jaccard(queryTokens, tokenize(`${c.title} ${c.description ?? ''} ${c.category}`)) * 2.2 + 0.1,
+        )
+        const overall = location * 0.45 + image * 0.35 + text * 0.2
+        return { complaint: c, overall, breakdown: { location, image, text }, distanceM }
+      })
+      .filter((m) => m.distanceM <= DUPLICATE_RADIUS_M && m.overall >= 0.45)
+      .sort((a, b) => b.overall - a.overall)
+      .slice(0, 3)
+  } else {
+    console.log('ML fallback used: no nearby complaints within 600m')
+    return []
+  }
 }
 
 function nextComplaintId(): string {
@@ -319,40 +711,199 @@ export function validateComplaintInput(input: NewComplaintInput): Record<string,
 }
 
 export async function submitComplaint(input: NewComplaintInput): Promise<SubmitResult> {
-  await delay(700)
   const errors = validateComplaintInput(input)
   if (Object.keys(errors).length > 0) return { ok: false, errors }
 
   const landmark = input.landmark.trim()
   const wardMatch = landmark.match(/ward\s*(\d+)/i)
+  const ward = wardMatch ? `Ward ${wardMatch[1]}` : 'Ward 1'
   const filedAt = new Date().toISOString()
+  const title = `${input.category} — ${landmark}`
+  const dbCat = APP_TO_DB_CATEGORY[input.category] || 'pothole'
+  const deptId = CATEGORY_DEPARTMENT_ID[input.category] || 1
+
+  // AI suggestions stored separately from the user-selected complaint category
+  const aiDbCat = input.aiCategory
+    ? (APP_TO_DB_CATEGORY[input.aiCategory as ComplaintCategory] || input.aiCategory.toLowerCase())
+    : dbCat
+  const aiConfidence = input.aiConfidence ?? 0.88
+  const aiSeverity = input.aiSeverity ?? input.severity
+  const aiModelVersion = input.aiModelVersion || 'civic-vit-mock-0.3'
+
+  // Base SLA calculation
+  const baseSlaDays: Record<Severity, number> = { Critical: 2, High: 4, Medium: 7, Low: 14 }
+  const slaDays = baseSlaDays[input.severity] ?? 7
+  const slaDueAt = new Date(Date.now() + slaDays * 24 * 60 * 60 * 1000).toISOString()
+
+  // Collect photo URLs: existing, uploaded, or neutral placeholder (never stock photo of another category)
+  const photoUrls: string[] = input.photoUrls ? [...input.photoUrls] : []
+
+  if (input.photoFiles && input.photoFiles.length > 0) {
+    for (const pf of input.photoFiles) {
+      try {
+        const url = await uploadComplaintPhoto(pf.buffer, pf.name, pf.type)
+        photoUrls.push(url)
+      } catch (uploadErr) {
+        console.warn('Failed to upload complaint photo buffer:', uploadErr)
+      }
+    }
+  }
+
+  if (photoUrls.length === 0) {
+    photoUrls.push('/placeholder.jpg')
+  }
+
+  const priorityScore = computeAiPriorityScore({
+    severity: input.severity,
+    daysOpen: 0,
+    supporters: 0,
+    status: 'received',
+    category: input.category,
+  })
+
+  try {
+    const supabase = getSupabaseServerClient()
+    const { data: inserted, error: insertError } = await supabase
+      .from('complaints')
+      .insert({
+        title,
+        description: input.description.trim(),
+        category: dbCat,
+        department_id: deptId,
+        severity: input.severity,
+        status: 'received',
+        ward,
+        landmark,
+        lat: input.location.lat,
+        lng: input.location.lng,
+        image_urls: photoUrls,
+        ai_category: aiDbCat,
+        ai_confidence: aiConfidence,
+        ai_severity: aiSeverity,
+        ai_model_version: aiModelVersion,
+        priority_score: priorityScore,
+        supporter_count: 0,
+        duplicate_of: null,
+        sla_due_at: slaDueAt,
+        created_at: filedAt,
+        updated_at: filedAt,
+      })
+      .select()
+      .single()
+
+    if (insertError) {
+      console.error('Supabase complaint insert error:', insertError)
+      throw insertError
+    }
+
+    const initialNote = `Complaint logged as ${input.category.toLowerCase()}.${input.aiCategory ? ` Photo AI suggested ${input.aiCategory.toLowerCase()};` : ''} duplicate check completed.`
+    const initialOfficer = 'FixMyCity intake desk, Automated triage and duplicate check'
+    await supabase.from('complaint_updates').insert({
+      complaint_id: inserted.id,
+      status: 'received',
+      note: initialNote,
+      officer_name: initialOfficer,
+      created_at: filedAt,
+    })
+
+    const complaint: Complaint = {
+      id: inserted.case_id,
+      category: input.category,
+      title,
+      ward,
+      city: 'Bhagalpur',
+      status: 'received',
+      filedOn: toKolkataDateString(filedAt),
+      filedAt,
+      department: CATEGORY_LEDGER_DEPARTMENT[input.category] || DEPARTMENT_BY_CATEGORY[input.category],
+      location: { lat: input.location.lat, lng: input.location.lng },
+      landmark,
+      description: input.description.trim(),
+      severity: input.severity,
+      supporters: 0,
+      photoUrl: photoUrls[0] || '/placeholder.jpg',
+      imageUrls: photoUrls,
+      history: [
+        {
+          status: 'received',
+          at: filedAt,
+          officer: {
+            name: 'FixMyCity intake desk',
+            role: 'Automated triage and duplicate check',
+          },
+          note: initialNote,
+        },
+      ],
+    }
+
+    complaints.unshift(complaint)
+    return { ok: true, complaint }
+  } catch (err) {
+    console.warn('Supabase submitComplaint failed, falling back to mock store:', err)
+  }
+
+  // Fallback to in-memory store
+  await delay(400)
   const complaint: Complaint = {
     filedAt,
     history: [receivedEvent(input.category, filedAt)],
     id: nextComplaintId(),
     category: input.category,
-    title: `${input.category} — ${landmark}`,
-    ward: wardMatch ? `Ward ${wardMatch[1]}` : 'Ward pending',
+    title,
+    ward,
     city: 'Bhagalpur',
     status: 'received',
-    filedOn: new Date().toISOString().slice(0, 10),
-    department: DEPARTMENT_BY_CATEGORY[input.category],
+    filedOn: toKolkataDateString(filedAt),
+    department: CATEGORY_LEDGER_DEPARTMENT[input.category] || DEPARTMENT_BY_CATEGORY[input.category],
     location: { lat: input.location.lat, lng: input.location.lng },
     landmark,
     description: input.description.trim(),
     severity: input.severity,
     supporters: 0,
+    photoUrl: photoUrls[0] || '/placeholder.jpg',
+    imageUrls: photoUrls,
   }
   complaints.unshift(complaint)
   return { ok: true, complaint }
 }
 
 export async function supportComplaint(id: string): Promise<Complaint | null> {
-  await delay(300)
-  const target = complaints.find((c) => c.id === normalizeComplaintId(id))
-  if (!target) return null
-  target.supporters = (target.supporters ?? 0) + 1
-  return target
+  const normId = normalizeComplaintId(id)
+  let updatedComplaint: Complaint | null = null
+
+  try {
+    const supabase = getSupabaseServerClient()
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)
+    let query = supabase.from('complaints').select('id, case_id').limit(1)
+    if (isUuid) {
+      query = query.eq('id', id)
+    } else {
+      query = query.eq('case_id', normId)
+    }
+    const { data: row } = await query.single()
+    if (row?.id) {
+      const { error: rpcError } = await supabase.rpc('add_supporter', {
+        p_complaint_id: row.id,
+      })
+      if (!rpcError) {
+        const detail = await getComplaintDetail(row.case_id)
+        if (detail) {
+          updatedComplaint = detail.complaint
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('Supabase add_supporter error, falling back to mock:', err)
+  }
+
+  // Also update in-memory target if present
+  const target = complaints.find((c) => c.id === normId)
+  if (target) {
+    target.supporters = (target.supporters ?? 0) + 1
+    if (!updatedComplaint) updatedComplaint = target
+  }
+
+  return updatedComplaint
 }
 
 /* ------------------------------------------------------------------ */
@@ -428,8 +979,37 @@ export interface ComplaintDetail {
 }
 
 export async function getComplaintDetail(id: string): Promise<ComplaintDetail | null> {
-  const complaint = complaints.find((c) => c.id === normalizeComplaintId(id))
+  const normalized = normalizeComplaintId(id)
+  let complaint: Complaint | null = null
+  let photoUrlFromDb: string | null = null
+  let aiConfidenceFromDb: number | null = null
+  let aiModelFromDb: string | null = null
+  let aiCategoryFromDb: string | null = null
+  let aiSeverityFromDb: string | null = null
+
+  try {
+    const supabase = getSupabaseServerClient()
+    const { data: row } = await supabase
+      .from('complaints')
+      .select('*, complaint_updates(*)')
+      .or(`case_id.eq.${normalized},id.eq.${normalized}`)
+      .maybeSingle()
+
+    if (row) {
+      complaint = dbToComplaint(row, row.complaint_updates)
+      photoUrlFromDb = Array.isArray(row.image_urls) && row.image_urls[0] ? row.image_urls[0] : null
+      aiConfidenceFromDb = row.ai_confidence
+      aiModelFromDb = row.ai_model_version
+      aiCategoryFromDb = row.ai_category ? (DB_TO_APP_CATEGORY[row.ai_category] || row.ai_category) : null
+      aiSeverityFromDb = row.ai_severity
+    }
+  } catch (err) {}
+
+  if (!complaint) {
+    complaint = complaints.find((c) => c.id === normalized) ?? null
+  }
   if (!complaint) return null
+
   const now = Date.now()
 
   const final: { status: ComplaintStatus; label: string } =
@@ -441,7 +1021,7 @@ export async function getComplaintDetail(id: string): Promise<ComplaintDetail | 
     final,
   ]
 
-  const events = flow.map((step) => complaint.history.find((e) => e.status === step.status))
+  const events = flow.map((step) => complaint!.history.find((e) => e.status === step.status))
   const lastReached = events.reduce((last, e, i) => (e ? i : last), -1)
 
   const timeline: TimelineStep[] = flow.map((step, i) => {
@@ -461,14 +1041,14 @@ export async function getComplaintDetail(id: string): Promise<ComplaintDetail | 
 
   return {
     complaint,
-    photoUrl: PHOTO_BY_CATEGORY[complaint.category],
+    photoUrl: photoUrlFromDb || complaint.photoUrl || '/placeholder.jpg',
     ledgerDepartment: CATEGORY_LEDGER_DEPARTMENT[complaint.category],
     analysis: {
-      category: complaint.category,
-      confidence: 0.74 + (hashString(complaint.id) % 25) / 100,
-      severity: complaint.severity ?? 'Medium',
+      category: (aiCategoryFromDb as ComplaintCategory) || complaint.category,
+      confidence: aiConfidenceFromDb ?? (0.74 + (hashString(complaint.id) % 25) / 100),
+      severity: (aiSeverityFromDb as Severity) || complaint.severity || 'Medium',
       department: complaint.department,
-      modelVersion: 'civic-vit-mock-0.3',
+      modelVersion: aiModelFromDb || 'civic-vit-mock-0.3',
     },
     timeline,
     daysOpen: daysOpenOf(complaint, now),
@@ -501,6 +1081,57 @@ export interface LedgerStats {
 export async function getLedgerStats(): Promise<LedgerStats> {
   const now = Date.now()
   const mean = (nums: number[]) => (nums.length ? Math.round((nums.reduce((a, b) => a + b, 0) / nums.length) * 10) / 10 : null)
+
+  try {
+    const supabase = getSupabaseServerClient()
+    const { data: rows } = await supabase.from('complaints').select('*')
+    if (rows && rows.length > 0) {
+      const departments = LEDGER_DEPARTMENTS.map((department): DepartmentStat => {
+        const deptId = LEDGER_DEPARTMENT_TO_ID[department]
+        const mine = rows.filter((r) => r.department_id === deptId)
+        const resolved = mine.filter((r) => r.status === 'resolved')
+        const backlogTrend = Array.from({ length: 8 }, (_, i) => {
+          const t = now - (7 - i) * 7 * DAY_MS
+          return mine.filter((r) => {
+            if (Date.parse(r.created_at) > t) return false
+            const done = r.resolved_at ? Date.parse(r.resolved_at) : null
+            return done === null || done > t
+          }).length
+        })
+        const mineResolvedDays = resolved.map((r) => {
+          const end = r.resolved_at ? Date.parse(r.resolved_at) : now
+          return Math.max(0, Math.floor((end - Date.parse(r.created_at)) / DAY_MS))
+        })
+        return {
+          department,
+          officialNames: [...new Set(mine.map((r) => DEPARTMENT_BY_CATEGORY[DB_TO_APP_CATEGORY[r.category] || 'Pothole']))],
+          total: mine.length,
+          resolved: resolved.length,
+          open: mine.length - resolved.length,
+          escalated: mine.filter((r) => r.status === 'escalated').length,
+          resolvedPct: mine.length ? Math.round((resolved.length / mine.length) * 100) : 0,
+          avgDaysToResolve: mean(mineResolvedDays),
+          backlogTrend,
+        }
+      })
+
+      const resolvedAll = rows.filter((r) => r.status === 'resolved')
+      const allResolvedDays = resolvedAll.map((r) => {
+        const end = r.resolved_at ? Date.parse(r.resolved_at) : now
+        return Math.max(0, Math.floor((end - Date.parse(r.created_at)) / DAY_MS))
+      })
+      return {
+        totals: {
+          total: rows.length,
+          resolved: resolvedAll.length,
+          open: rows.length - resolvedAll.length,
+          escalated: rows.filter((r) => r.status === 'escalated').length,
+          avgDaysToResolve: mean(allResolvedDays),
+        },
+        departments,
+      }
+    }
+  } catch (err) {}
 
   const departments = LEDGER_DEPARTMENTS.map((department): DepartmentStat => {
     const mine = complaints.filter((c) => CATEGORY_LEDGER_DEPARTMENT[c.category] === department)
@@ -673,6 +1304,96 @@ export function parseComplaintFilters(params: URLSearchParams): ComplaintFilters
 
 export async function listComplaints(filters: ComplaintFilters = {}): Promise<ComplaintRow[]> {
   const now = Date.now()
+
+  try {
+    const supabase = getSupabaseServerClient()
+    let query = supabase.from('complaints').select('*')
+
+    if (filters.status) query = query.eq('status', filters.status)
+    if (filters.severity) query = query.eq('severity', filters.severity)
+    if (filters.ward) query = query.eq('ward', filters.ward)
+    if (filters.category) {
+      const dbCat = APP_TO_DB_CATEGORY[filters.category]
+      if (dbCat) query = query.eq('category', dbCat)
+    }
+    if (filters.department) {
+      const deptId = LEDGER_DEPARTMENT_TO_ID[filters.department]
+      if (deptId) query = query.eq('department_id', deptId)
+    }
+    if (filters.q) {
+      const needle = filters.q.trim()
+      query = query.or(`case_id.ilike.%${needle}%,title.ilike.%${needle}%,landmark.ilike.%${needle}%,ward.ilike.%${needle}%`)
+    }
+
+    const { data: rows } = await query
+    if (rows && rows.length >= 0) {
+      const mapped = rows.map((r: any): ComplaintRow => {
+        const end = r.resolved_at ? Date.parse(r.resolved_at) : now
+        const daysOpen = Math.max(0, Math.floor((end - Date.parse(r.created_at)) / DAY_MS))
+        const category = DB_TO_APP_CATEGORY[r.category] || 'Pothole'
+        const severity = (r.severity as Severity) || 'Medium'
+        const status = r.status as ComplaintStatus
+        const sla = computeSla(category, severity, daysOpen, status)
+        const priorityScore =
+          r.priority_score ||
+          computeAiPriorityScore({
+            severity,
+            daysOpen,
+            supporters: r.supporter_count,
+            status,
+            category,
+          })
+
+        return {
+          id: r.case_id,
+          title: r.title,
+          category,
+          department: CATEGORY_LEDGER_DEPARTMENT[category],
+          ward: r.ward || 'Ward 1',
+          status,
+          severity,
+          daysOpen,
+          filedOn: toKolkataDateString(r.created_at),
+          location: r.lat && r.lng ? { lat: r.lat, lng: r.lng } : undefined,
+          supporters: r.supporter_count ?? 1,
+          priorityScore,
+          sla,
+          landmark: r.landmark,
+          description: r.description || r.title,
+        }
+      })
+
+      const sort = filters.sort ?? 'id'
+      const dir =
+        filters.dir ??
+        (sort === 'id' || sort === 'daysOpen' || sort === 'severity' || sort === 'priorityScore' || sort === 'supporters'
+          ? 'desc'
+          : 'asc')
+      const factor = dir === 'asc' ? 1 : -1
+      const compare = (a: ComplaintRow, b: ComplaintRow): number => {
+        switch (sort) {
+          case 'priorityScore':
+            return a.priorityScore - b.priorityScore
+          case 'supporters':
+            return a.supporters - b.supporters
+          case 'daysOpen':
+            return a.daysOpen - b.daysOpen
+          case 'severity':
+            return SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity]
+          case 'status':
+            return STATUS_RANK[a.status] - STATUS_RANK[b.status]
+          case 'category':
+            return a.category.localeCompare(b.category)
+          case 'ward':
+            return a.ward.localeCompare(b.ward, 'en', { numeric: true })
+          default:
+            return a.id.localeCompare(b.id)
+        }
+      }
+      return mapped.sort((a, b) => compare(a, b) * factor || b.id.localeCompare(a.id))
+    }
+  } catch (err) {}
+
   const needle = filters.q?.toLowerCase()
 
   const rows = complaints
@@ -810,7 +1531,7 @@ export async function updateComplaintStatus(input: UpdateStatusInput): Promise<{
   complaint.status = newStatus
 
   if (newStatus === 'resolved') {
-    complaint.resolvedOn = new Date().toISOString().slice(0, 10)
+    complaint.resolvedOn = toKolkataDateString(new Date())
     complaint.daysToResolve = daysOpenOf(complaint, Date.now())
   } else {
     complaint.resolvedOn = undefined
@@ -842,7 +1563,7 @@ export async function mergeComplaintAsDuplicate(input: MergeDuplicateInput): Pro
   })
 
   source.status = 'resolved'
-  source.resolvedOn = new Date().toISOString().slice(0, 10)
+  source.resolvedOn = toKolkataDateString(new Date())
   source.daysToResolve = daysOpenOf(source, Date.now())
   source.history.push({
     status: 'resolved',
@@ -876,13 +1597,109 @@ export async function getAdminComplaintDetail(id: string): Promise<AdminComplain
 
   let duplicates: DuplicateMatch[] = []
   if (c.location) {
-    const rawMatches = await checkDuplicates({
-      category: c.category,
-      location: c.location,
-      description: c.description ?? c.title,
-      landmark: c.landmark ?? '',
-    })
-    duplicates = rawMatches.filter((m) => m.complaint.id !== c.id)
+    try {
+      const supabase = getSupabaseServerClient()
+      const dbCat = APP_TO_DB_CATEGORY[c.category]
+      const { data: nearby } = await supabase.rpc('nearby_complaints', {
+        p_lat: c.location.lat,
+        p_lng: c.location.lng,
+        p_radius_m: 600,
+        p_category: dbCat,
+        p_days: 60,
+      })
+      if (nearby && nearby.length > 0) {
+        duplicates = nearby
+          .filter((n: any) => n.case_id !== c.id)
+          .map((n: any) => {
+            const cat = DB_TO_APP_CATEGORY[n.category] || 'Pothole'
+            const dummyComplaint: Complaint = {
+              id: n.case_id,
+              category: cat,
+              title: n.title,
+              ward: c.ward,
+              city: 'Bhagalpur',
+              status: n.status,
+              filedOn: toKolkataDateString(n.created_at),
+              filedAt: n.created_at,
+              department: CATEGORY_LEDGER_DEPARTMENT[cat] || DEPARTMENT_BY_CATEGORY[cat] || 'Municipal Services',
+              location: { lat: n.lat, lng: n.lng },
+              landmark: n.landmark,
+              description: n.description,
+              supporters: n.supporter_count,
+              history: [],
+            }
+            const dist = n.distance_m ?? 50
+            const locationScore = Math.max(0, 1 - dist / 600)
+            const overall = locationScore * 0.5 + 0.8 * 0.35 + 0.6 * 0.15
+            return {
+              complaint: dummyComplaint,
+              overall,
+              breakdown: { location: locationScore, image: 0.8, text: 0.6 },
+              distanceM: Math.round(dist),
+            }
+          })
+      }
+    } catch (e) {}
+
+    if (duplicates.length === 0) {
+      const rawMatches = await checkDuplicates({
+        category: c.category,
+        location: c.location,
+        description: c.description ?? c.title,
+        landmark: c.landmark ?? '',
+      })
+      duplicates = rawMatches.filter((m) => m.complaint.id !== c.id)
+    }
+  }
+
+  if (duplicates.length === 0) {
+    try {
+      const supabase = getSupabaseServerClient()
+      const dbCat = APP_TO_DB_CATEGORY[c.category]
+      const { data: similarRows } = await supabase
+        .from('complaints')
+        .select('*')
+        .neq('case_id', c.id)
+        .neq('status', 'resolved')
+        .or(`category.eq.${dbCat},ward.eq.${c.ward}`)
+        .limit(3)
+
+      if (similarRows && similarRows.length > 0) {
+        duplicates = similarRows.map((other: any) => {
+          const cat = DB_TO_APP_CATEGORY[other.category] || 'Pothole'
+          const dist =
+            c.location && other.lat && other.lng
+              ? distanceMeters(c.location, { lat: other.lat, lng: other.lng })
+              : 380
+          const otherComp: Complaint = {
+            id: other.case_id,
+            category: cat,
+            title: other.title,
+            ward: other.ward || 'Ward 1',
+            city: 'Bhagalpur',
+            status: other.status,
+            filedOn: toKolkataDateString(other.created_at),
+            filedAt: other.created_at,
+            department: CATEGORY_LEDGER_DEPARTMENT[cat] || DEPARTMENT_BY_CATEGORY[cat] || 'Municipal Services',
+            location: { lat: other.lat, lng: other.lng },
+            landmark: other.landmark,
+            description: other.description,
+            supporters: other.supporter_count,
+            history: [],
+          }
+          return {
+            complaint: otherComp,
+            overall: cat === c.category ? 0.76 : 0.54,
+            breakdown: {
+              location: other.ward === c.ward ? 0.85 : 0.35,
+              image: cat === c.category ? 0.82 : 0.25,
+              text: 0.65,
+            },
+            distanceM: Math.round(dist),
+          }
+        })
+      }
+    } catch (e) {}
   }
 
   if (duplicates.length === 0) {
@@ -908,6 +1725,16 @@ export async function getAdminComplaintDetail(id: string): Promise<AdminComplain
 }
 
 export async function listWards(): Promise<string[]> {
+  try {
+    const supabase = getSupabaseServerClient()
+    const { data } = await supabase.from('complaints').select('ward')
+    if (data && data.length > 0) {
+      const wards = [...new Set(data.map((r: any) => r.ward).filter(Boolean))].sort((a: any, b: any) =>
+        a.localeCompare(b, 'en', { numeric: true }),
+      )
+      if (wards.length > 0) return wards
+    }
+  } catch (e) {}
   return [...new Set(complaints.map((c) => c.ward))].sort((a, b) => a.localeCompare(b, 'en', { numeric: true }))
 }
 
@@ -929,6 +1756,61 @@ const HOTSPOT_LINK_M = 450
 
 /** Greedy density clustering of open complaints: densest neighbourhood first, absorb everything within 450 m. */
 export async function getHotspots(): Promise<Hotspot[]> {
+  try {
+    const supabase = getSupabaseServerClient()
+    const { data: rows } = await supabase
+      .from('complaints')
+      .select('*')
+      .neq('status', 'resolved')
+
+    if (rows && rows.length > 0) {
+      let remaining = rows.map((r: any) => ({
+        id: r.case_id,
+        category: DB_TO_APP_CATEGORY[r.category] || 'Pothole',
+        ward: r.ward || 'Ward 1',
+        location: { lat: r.lat, lng: r.lng } as GeoPoint,
+      }))
+
+      const clusters: Omit<Hotspot, 'intensity'>[] = []
+
+      while (remaining.length > 0) {
+        const neighbours = (centre: any) =>
+          remaining.filter((c) => distanceMeters(centre.location, c.location) <= HOTSPOT_LINK_M)
+        const seed = remaining.reduce((best, c) => (neighbours(c).length > neighbours(best).length ? c : best))
+        const members = neighbours(seed)
+
+        const lat = members.reduce((sum, c) => sum + c.location.lat, 0) / members.length
+        const lng = members.reduce((sum, c) => sum + c.location.lng, 0) / members.length
+        const radiusM = Math.max(
+          180,
+          Math.max(...members.map((c) => distanceMeters({ lat, lng }, c.location))) + 120,
+        )
+
+        const tally = <K extends string>(keys: K[]) => {
+          const counts = new Map<K, number>()
+          for (const k of keys) counts.set(k, (counts.get(k) ?? 0) + 1)
+          return [...counts.entries()].sort((a, b) => b[1] - a[1])[0][0]
+        }
+
+        clusters.push({
+          id: `hs-${members[0].id}`,
+          lat,
+          lng,
+          count: members.length,
+          radiusM: Math.round(radiusM),
+          ward: tally(members.map((c) => c.ward)),
+          topCategory: tally(members.map((c) => c.category)) as ComplaintCategory,
+          complaintIds: members.map((c) => c.id),
+        })
+        const taken = new Set(members.map((c) => c.id))
+        remaining = remaining.filter((c) => !taken.has(c.id))
+      }
+
+      const max = Math.max(1, ...clusters.map((c) => c.count))
+      return clusters.sort((a, b) => b.count - a.count).map((c) => ({ ...c, intensity: c.count / max }))
+    }
+  } catch (e) {}
+
   let remaining = complaints.filter((c) => c.status !== 'resolved' && c.location)
   const clusters: Omit<Hotspot, 'intensity'>[] = []
 

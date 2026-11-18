@@ -97,6 +97,7 @@ const CATEGORY_SENTENCE: Record<ComplaintCategory, string> = {
   Drainage: 'Dirty water is standing in the lane and entering nearby homes.',
   'Water Supply': 'Households in the lane are affected.',
   Encroachment: 'Pedestrians are being forced onto the carriageway.',
+  'Damaged Infrastructure': 'The damaged public structure is a hazard for citizens.',
   'School Facilities': 'Students are affected every school day.',
   'Hospital Services': 'Patients and attendants are facing delays and discomfort.',
   'Food Safety': 'Residents are at risk of food-borne illness.',

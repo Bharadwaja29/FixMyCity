@@ -1,5 +1,6 @@
 import { Files, Loader2 } from 'lucide-react'
 import { STATUS_LABEL, type DuplicateMatch } from '@/lib/api'
+import { formatKolkataDate } from '@/lib/format'
 import { CaseCard } from './case-card'
 
 interface Props {
@@ -40,7 +41,7 @@ export function SimilarReports({ matches, onSupport, onDifferent, supportingId }
               </div>
               <p className="font-serif text-lg font-semibold leading-snug">{m.complaint.title}</p>
               <p className="text-xs tabular-nums text-muted-foreground">
-                {m.complaint.category} · {Math.round(m.distanceM)} m away · Filed {m.complaint.filedOn}
+                {m.complaint.category} · {Math.round(m.distanceM)} m away · Filed {formatKolkataDate(m.complaint.filedAt || m.complaint.filedOn)}
               </p>
               <dl className="mt-1 grid grid-cols-3 gap-3">
                 {(

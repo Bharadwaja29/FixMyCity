@@ -15,6 +15,7 @@ export type LedgerDepartment = (typeof LEDGER_DEPARTMENTS)[number]
 export const CATEGORY_LEDGER_DEPARTMENT: Record<ComplaintCategory, LedgerDepartment> = {
   Pothole: 'Roads',
   Encroachment: 'Roads',
+  'Damaged Infrastructure': 'Roads',
   Streetlight: 'Electricity',
   'Water Supply': 'Water Supply',
   Garbage: 'Sanitation',
@@ -26,6 +27,7 @@ export const CATEGORY_LEDGER_DEPARTMENT: Record<ComplaintCategory, LedgerDepartm
 
 export const DEPARTMENT_BY_CATEGORY: Record<ComplaintCategory, string> = {
   Pothole: 'Public Works Department',
+  'Damaged Infrastructure': 'Public Works Department',
   Streetlight: 'Electrical Division',
   Garbage: 'Sanitation Department',
   Drainage: 'Drainage Cell',
@@ -38,6 +40,7 @@ export const DEPARTMENT_BY_CATEGORY: Record<ComplaintCategory, string> = {
 
 export const PHOTO_BY_CATEGORY: Record<ComplaintCategory, string> = {
   Pothole: '/complaints/pothole.jpg',
+  'Damaged Infrastructure': '/complaints/pothole.jpg',
   Streetlight: '/complaints/streetlight.jpg',
   Garbage: '/complaints/garbage.jpg',
   Drainage: '/complaints/drainage.jpg',
@@ -100,6 +103,11 @@ export const STAGE_NOTES: Record<ComplaintCategory, StageNotes> = {
     assigned: 'Site inspection scheduled. Patch size and bitumen quantity to be estimated.',
     progress: 'Crew mobilised. Loose material cleared and the pothole prepared for patching.',
     resolved: 'Pothole filled and compacted. Completion photo uploaded to the case file.',
+  },
+  'Damaged Infrastructure': {
+    assigned: 'Site inspection scheduled. Structure safety check and repair estimate in progress.',
+    progress: 'Crew mobilised. Damaged structure reinforced and repairs underway.',
+    resolved: 'Infrastructure repairs completed and site safety verified.',
   },
   Streetlight: {
     assigned: 'Pole number identified from the pin. Electrical crew allotted.',

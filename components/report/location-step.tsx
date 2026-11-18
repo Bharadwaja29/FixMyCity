@@ -37,7 +37,7 @@ export function LocationStep({ location, onLocationChange, landmark, onLandmarkC
 
   function useCurrentLocation() {
     if (!('geolocation' in navigator)) {
-      setGeoStatus({ kind: 'error', message: 'Your browser does not support location access. Drag the pin instead.' })
+      setGeoStatus({ kind: 'error', message: 'Your browser does not support location access. Click the map or drag the pin instead.' })
       return
     }
     setGeoStatus({ kind: 'locating' })
@@ -50,8 +50,8 @@ export function LocationStep({ location, onLocationChange, landmark, onLandmarkC
       (err) => {
         const message =
           err.code === err.PERMISSION_DENIED
-            ? 'Location permission was denied. Drag the pin or tap the map instead.'
-            : 'Could not get your location. Drag the pin or tap the map instead.'
+            ? 'Location permission was denied. Click anywhere on the map or drag the pin instead.'
+            : 'Could not get your location. Click anywhere on the map or drag the pin instead.'
         setGeoStatus({ kind: 'error', message })
       },
       { enableHighAccuracy: true, timeout: 10000 },
@@ -68,29 +68,37 @@ export function LocationStep({ location, onLocationChange, landmark, onLandmarkC
       label="Exhibit B · Location"
       icon={MapPin}
       footer={
-        <span>
-          Pin · {location.lat.toFixed(5)}, {location.lng.toFixed(5)}
-        </span>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span>
+            Pin coordinates · {location.lat.toFixed(5)}, {location.lng.toFixed(5)}
+          </span>
+          <span className="text-muted-foreground">Click map or drag pin to position</span>
+        </div>
       }
     >
-      <div className="flex flex-wrap items-center gap-3">
-        <button
-          type="button"
-          onClick={useCurrentLocation}
-          disabled={geoStatus.kind === 'locating'}
-          className="inline-flex h-10 items-center gap-2 rounded-md bg-primary px-4 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-70"
-        >
-          <LocateFixed className="size-4" strokeWidth={1.5} aria-hidden="true" />
-          {geoStatus.kind === 'locating' ? 'Locating…' : 'Use my current location'}
-        </button>
-        <button
-          type="button"
-          onClick={placeAtCentre}
-          className="inline-flex h-10 items-center gap-2 rounded-md border border-input bg-card px-4 text-sm font-semibold hover:bg-muted"
-        >
-          <Crosshair className="size-4" strokeWidth={1.5} aria-hidden="true" />
-          Place pin at map centre
-        </button>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            onClick={useCurrentLocation}
+            disabled={geoStatus.kind === 'locating'}
+            className="inline-flex h-10 items-center gap-2 rounded-md bg-primary px-4 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-70"
+          >
+            <LocateFixed className="size-4" strokeWidth={1.5} aria-hidden="true" />
+            {geoStatus.kind === 'locating' ? 'Locating…' : 'Use my current location'}
+          </button>
+          <button
+            type="button"
+            onClick={placeAtCentre}
+            className="inline-flex h-10 items-center gap-2 rounded-md border border-input bg-card px-4 text-sm font-semibold hover:bg-muted"
+          >
+            <Crosshair className="size-4" strokeWidth={1.5} aria-hidden="true" />
+            Place pin at map centre
+          </button>
+        </div>
+        <div className="font-mono text-xs tabular-nums text-muted-foreground">
+          Coordinates: <span className="font-semibold text-foreground">{location.lat.toFixed(5)}, {location.lng.toFixed(5)}</span>
+        </div>
       </div>
       <p
         role="status"
@@ -99,12 +107,12 @@ export function LocationStep({ location, onLocationChange, landmark, onLandmarkC
           geoStatus.kind === 'error' ? 'font-medium text-destructive' : 'text-muted-foreground',
         )}
       >
-        {geoStatus.message ?? 'Drag the pin, tap the map, or pan with arrow keys and use “Place pin at map centre”.'}
+        {geoStatus.message ?? 'Click anywhere on the map to place the pin, drag it to adjust, or use “Use my current location”.'}
       </p>
 
       <div
         role="region"
-        aria-label="Map. Focus and use arrow keys to pan, plus and minus to zoom."
+        aria-label="Map. Focus and use arrow keys to pan, plus and minus to zoom, or click anywhere to position the pin."
         className="relative isolate z-0 h-72 overflow-hidden rounded-md border border-border sm:h-96"
       >
         <LocationMap

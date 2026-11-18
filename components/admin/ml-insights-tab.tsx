@@ -61,7 +61,7 @@ const CONFUSION_CLASSES: ComplaintCategory[] = [
   'Encroachment',
 ]
 
-const CONFUSION_MATRIX: Record<ComplaintCategory, Record<ComplaintCategory, number>> = {
+const CONFUSION_MATRIX: Record<string, Record<string, number>> = {
   Pothole: {
     Pothole: 94,
     Streetlight: 0,

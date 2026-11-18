@@ -3,7 +3,12 @@ import type { Complaint } from '@/lib/api'
 
 function formatDate(iso?: string) {
   if (!iso) return ''
-  return new Date(iso).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })
+  const d = /^\d{4}-\d{2}-\d{2}$/.test(iso) ? new Date(`${iso}T12:00:00+05:30`) : new Date(iso)
+  return new Intl.DateTimeFormat('en-IN', {
+    day: '2-digit',
+    month: 'short',
+    timeZone: 'Asia/Kolkata',
+  }).format(d)
 }
 
 function TickerItem({ c, hidden = false }: { c: Complaint; hidden?: boolean }) {
