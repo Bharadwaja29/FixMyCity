@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ArrowLeft, ArrowRight, Loader2 } from 'lucide-react'
 import {
+  CATEGORIES,
   DEFAULT_CENTER,
   type Complaint,
   type ComplaintCategory,
@@ -117,9 +118,19 @@ export function ReportFlow() {
       if (request !== analysisRequest.current) return
       setAnalysis(res)
       if (!categoryTouchedRef.current && !categoryRef.current) {
-        setCategory(res.issueType)
+        if (!res.isNoIssue && res.issueType !== 'No issue detected') {
+          const preselected =
+            res.issueType === 'Water Supply (leak)'
+              ? 'Water Supply'
+              : CATEGORIES.includes(res.issueType as ComplaintCategory)
+              ? (res.issueType as ComplaintCategory)
+              : ''
+          if (preselected) {
+            setCategory(preselected)
+            clearError('category')
+          }
+        }
       }
-      clearError('category')
     } catch {
       if (request !== analysisRequest.current) return
       setAnalysisError('Analysis failed. Choose a category manually below.')

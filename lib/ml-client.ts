@@ -1,6 +1,43 @@
 import type { ComplaintCategory, Severity } from './api'
 
 /**
+ * One-to-one display mapping for ML labels in the AI Analysis panel:
+ * pothole -> Pothole
+ * streetlight -> Streetlight
+ * garbage -> Garbage
+ * water_leakage -> Water Supply (leak)
+ * damaged_infrastructure -> Damaged Infrastructure
+ * no_issue -> "No issue detected"
+ */
+export const ML_TO_DISPLAY_LABEL: Record<string, string> = {
+  pothole: 'Pothole',
+  Pothole: 'Pothole',
+  streetlight: 'Streetlight',
+  Streetlight: 'Streetlight',
+  garbage: 'Garbage',
+  Garbage: 'Garbage',
+  water_leakage: 'Water Supply (leak)',
+  'Water Supply (leak)': 'Water Supply (leak)',
+  water_supply: 'Water Supply (leak)',
+  'Water Supply': 'Water Supply (leak)',
+  damaged_infrastructure: 'Damaged Infrastructure',
+  'Damaged Infrastructure': 'Damaged Infrastructure',
+  no_issue: 'No issue detected',
+  'No issue detected': 'No issue detected',
+}
+
+export function mapMlLabelToDisplay(raw?: string): string {
+  if (!raw) return 'No issue detected'
+  const trimmed = raw.trim()
+  if (ML_TO_DISPLAY_LABEL[trimmed]) return ML_TO_DISPLAY_LABEL[trimmed]
+  const lower = trimmed.toLowerCase()
+  if (ML_TO_DISPLAY_LABEL[lower]) return ML_TO_DISPLAY_LABEL[lower]
+  const spaced = lower.replace(/_/g, ' ')
+  if (ML_TO_DISPLAY_LABEL[spaced]) return ML_TO_DISPLAY_LABEL[spaced]
+  return trimmed
+}
+
+/**
  * Mapping of ML category names (and common variants / snake_case) to the app's ComplaintCategory.
  */
 export const ML_TO_APP_CATEGORY: Record<string, ComplaintCategory> = {
@@ -21,9 +58,11 @@ export const ML_TO_APP_CATEGORY: Record<string, ComplaintCategory> = {
   'Water Supply': 'Water Supply',
   water_leakage: 'Water Supply',
   'Water Leakage': 'Water Supply',
+  'Water Supply (leak)': 'Water Supply',
   encroachment: 'Encroachment',
   Encroachment: 'Encroachment',
-  damaged_infrastructure: 'Encroachment',
+  damaged_infrastructure: 'Damaged Infrastructure',
+  'Damaged Infrastructure': 'Damaged Infrastructure',
   school_facilities: 'School Facilities',
   'School Facilities': 'School Facilities',
   hospital_services: 'Hospital Services',
@@ -32,18 +71,20 @@ export const ML_TO_APP_CATEGORY: Record<string, ComplaintCategory> = {
   'Food Safety': 'Food Safety',
 }
 
-export function mapMlCategoryToApp(raw?: string): ComplaintCategory {
-  if (!raw) return 'Pothole'
+export function mapMlCategoryToApp(raw?: string): ComplaintCategory | null {
+  if (!raw) return null
   const trimmed = raw.trim()
+  if (trimmed === 'no_issue') return null
   if (ML_TO_APP_CATEGORY[trimmed]) return ML_TO_APP_CATEGORY[trimmed]
   const lower = trimmed.toLowerCase()
+  if (lower === 'no_issue') return null
   if (ML_TO_APP_CATEGORY[lower]) return ML_TO_APP_CATEGORY[lower]
   const spaced = lower.replace(/_/g, ' ')
   if (ML_TO_APP_CATEGORY[spaced]) return ML_TO_APP_CATEGORY[spaced]
   for (const [key, val] of Object.entries(ML_TO_APP_CATEGORY)) {
     if (key.toLowerCase() === spaced) return val
   }
-  return 'Pothole'
+  return null
 }
 
 export function normalizeSeverity(raw?: string): Severity {

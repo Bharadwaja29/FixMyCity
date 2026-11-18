@@ -11,19 +11,22 @@ import {
   callMlAnalyze,
   callMlDuplicateCheck,
   mapMlCategoryToApp,
+  mapMlLabelToDisplay,
   normalizeSeverity,
   ML_TO_APP_CATEGORY,
+  ML_TO_DISPLAY_LABEL,
   type MlDuplicateCandidate,
 } from './ml-client'
 import { uploadComplaintPhoto } from './supabase/storage'
 import { toKolkataDateString, formatKolkataDate } from './format'
 
-export { DEPARTMENT_BY_CATEGORY, LEDGER_DEPARTMENTS, CATEGORY_LEDGER_DEPARTMENT, ML_TO_APP_CATEGORY }
+export { DEPARTMENT_BY_CATEGORY, LEDGER_DEPARTMENTS, CATEGORY_LEDGER_DEPARTMENT, ML_TO_APP_CATEGORY, ML_TO_DISPLAY_LABEL }
 export type { LedgerDepartment }
 
 export const CATEGORY_DEPARTMENT_ID: Record<ComplaintCategory, number> = {
   Pothole: 1,
   Encroachment: 1,
+  'Damaged Infrastructure': 1,
   Streetlight: 2,
   'Water Supply': 3,
   Garbage: 4,
@@ -40,6 +43,7 @@ export const APP_TO_DB_CATEGORY: Record<ComplaintCategory, string> = {
   Drainage: 'drainage',
   'Water Supply': 'water_supply',
   Encroachment: 'encroachment',
+  'Damaged Infrastructure': 'damaged_infrastructure',
   'School Facilities': 'school_facilities',
   'Hospital Services': 'hospital_services',
   'Food Safety': 'food_safety',
@@ -53,7 +57,7 @@ export const DB_TO_APP_CATEGORY: Record<string, ComplaintCategory> = {
   water_supply: 'Water Supply',
   water_leakage: 'Water Supply',
   encroachment: 'Encroachment',
-  damaged_infrastructure: 'Encroachment',
+  damaged_infrastructure: 'Damaged Infrastructure',
   school_facilities: 'School Facilities',
   hospital_services: 'Hospital Services',
   food_safety: 'Food Safety',
@@ -78,6 +82,7 @@ export type ComplaintCategory =
   | 'Drainage'
   | 'Water Supply'
   | 'Encroachment'
+  | 'Damaged Infrastructure'
   | 'School Facilities'
   | 'Hospital Services'
   | 'Food Safety'
@@ -297,6 +302,7 @@ export const CATEGORIES: ComplaintCategory[] = [
   'Drainage',
   'Water Supply',
   'Encroachment',
+  'Damaged Infrastructure',
   'School Facilities',
   'Hospital Services',
   'Food Safety',
@@ -309,12 +315,12 @@ export interface ImageMeta {
 }
 
 export interface ClassScore {
-  label: ComplaintCategory
+  label: string
   score: number
 }
 
 export interface ImageAnalysis {
-  issueType: ComplaintCategory
+  issueType: string
   topClasses: ClassScore[]
   severity: Severity
   department: string
@@ -322,6 +328,7 @@ export interface ImageAnalysis {
   photoGps: GeoPoint | null
   modelVersion: string
   source?: 'live' | 'fallback'
+  isNoIssue?: boolean
 }
 
 export interface SimilarityBreakdown {
@@ -461,21 +468,33 @@ export async function analyzeImage(input: AnalyzeImageInput): Promise<ImageAnaly
   const mlRes = await callMlAnalyze({ file, fileName, text })
   if (mlRes.usedLive && mlRes.data) {
     console.log('ML service used')
-    const primary = mapMlCategoryToApp(mlRes.data.category)
+    const rawCat = mlRes.data.category || mlRes.data.top3?.[0]?.label
+    const isNoIssue = rawCat === 'no_issue'
+    const displayLabel = mapMlLabelToDisplay(rawCat)
+    const primaryAppCategory = mapMlCategoryToApp(rawCat)
+
+    const topClasses: ClassScore[] =
+      mlRes.data.top3 && mlRes.data.top3.length > 0
+        ? mlRes.data.top3.map((t) => ({
+            label: mapMlLabelToDisplay(t.label),
+            score: t.prob,
+          }))
+        : [{ label: displayLabel, score: mlRes.data.confidence || 0.9 }]
+
+    // Suggested department from the ML response's "department" field when present
+    const suggestedDept =
+      mlRes.data.department ||
+      (primaryAppCategory ? (CATEGORY_LEDGER_DEPARTMENT[primaryAppCategory] || DEPARTMENT_BY_CATEGORY[primaryAppCategory]) : '')
+
     return {
-      issueType: primary,
-      topClasses:
-        mlRes.data.top3 && mlRes.data.top3.length > 0
-          ? mlRes.data.top3.map((t) => ({
-              label: mapMlCategoryToApp(t.label),
-              score: t.prob,
-            }))
-          : [{ label: primary, score: mlRes.data.confidence || 0.9 }],
+      issueType: displayLabel,
+      topClasses,
       severity: normalizeSeverity(mlRes.data.severity),
-      department: mlRes.data.department || CATEGORY_LEDGER_DEPARTMENT[primary] || DEPARTMENT_BY_CATEGORY[primary],
+      department: suggestedDept,
       photoGps: null,
       modelVersion: 'civic-vit-ml-service',
       source: 'live',
+      isNoIssue,
     }
   }
 
